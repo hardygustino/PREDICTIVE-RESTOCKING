@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: restock-postgres
+    environment:
+      POSTGRES_USER: restock
+      POSTGRES_PASSWORD: restock
+      POSTGRES_DB: restock_db
+    ports:
+      - "5440:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
