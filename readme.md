@@ -1,166 +1,194 @@
-# Batch-Based Predictive Restocking Data Pipeline
+Baik. Ini **README versi Bahasa Indonesia**, **formal**, **profesional**, dan **aman untuk mentor/dosen/reviewer industri**.
+Tidak ada emoji, tidak ada bahasa santai.
 
-**Case Study: Olist Brazilian E-Commerce Dataset**
+Silakan **copy–paste langsung** ke `README.md`.
 
-## Ringkasan Proyek
+---
 
-Proyek ini bertujuan membangun **data pipeline batch** untuk menghasilkan **rekomendasi restock produk** berdasarkan data penjualan historis e-commerce.
-Pipeline dirancang menggunakan pendekatan **end-to-end Data Engineering**, mulai dari ingestion data mentah, transformasi data, pemodelan data bisnis, hingga penyimpanan hasil ke database PostgreSQL.
+# Predictive Restocking – Micro-Batch Data Pipeline
 
-Proyek ini berfokus pada **pemecahan masalah bisnis nyata**, yaitu bagaimana membantu pengambilan keputusan inventory agar lebih berbasis data, bukan intuisi semata.
+## Gambaran Umum
+
+Proyek ini membangun **pipeline data engineering end-to-end** untuk menghasilkan **rekomendasi restock produk** berdasarkan data penjualan historis e-commerce.
+
+Pipeline dijalankan secara **micro-batch per jam**, menggunakan **Apache Spark** sebagai mesin pemrosesan data, **Apache Airflow** sebagai orchestrator, dan **PostgreSQL** sebagai penyimpanan data analitik.
 
 ---
 
 ## Latar Belakang Masalah
 
-Dalam praktik retail dan e-commerce, keputusan restock sering kali dilakukan berdasarkan:
+Dalam operasional retail online, keputusan restock sering kali tidak optimal karena:
 
-* intuisi pemilik atau staf gudang,
-* laporan penjualan yang bersifat deskriptif,
-* atau pengalaman masa lalu tanpa perhitungan kuantitatif.
+* Kurangnya insight terstruktur dari data penjualan
+* Risiko kehabisan stok (stock-out) atau kelebihan stok (overstock)
+* Proses analisis yang masih manual dan tidak terjadwal
 
-Pendekatan tersebut menimbulkan dua masalah utama:
-
-1. **Stockout**
-   Produk dengan permintaan tinggi sering kehabisan stok sehingga menyebabkan kehilangan potensi pendapatan.
-2. **Overstock**
-   Produk dengan penjualan rendah menumpuk di gudang dan menyebabkan modal terjebak serta biaya penyimpanan meningkat.
-
-Masalah ini membutuhkan solusi berupa **sistem data terstruktur** yang mampu memberikan rekomendasi restock secara kuantitatif dan konsisten.
+Proyek ini bertujuan untuk:
+Menyediakan rekomendasi restock otomatis berdasarkan pola penjualan historis.
 
 ---
 
-## Tujuan Proyek
+## Pendekatan Solusi
 
-Tujuan utama proyek ini adalah:
+Solusi dirancang menggunakan pendekatan **micro-batch data pipeline**, di mana data diproses secara berkala (setiap satu jam) untuk menghasilkan output yang siap digunakan oleh bisnis.
 
-1. Membangun pipeline batch yang terjadwal dan terotomasi.
-2. Mengolah data transaksi e-commerce menjadi data yang siap digunakan untuk analisis bisnis.
-3. Menghasilkan **rekomendasi restock detail per produk** berbasis metrik penjualan.
-4. Menerapkan praktik Data Engineering seperti:
+Alasan pemilihan micro-batch:
 
-   * data layering (raw, staging, mart),
-   * data modeling berbasis kebutuhan bisnis,
-   * dokumentasi dan struktur repository yang rapi.
+* Update per jam sudah memadai untuk pengambilan keputusan restock
+* Lebih stabil dan mudah dimonitor dibandingkan real-time streaming
+* Dataset yang digunakan bersifat historis (batch)
+
+---
+
+## Arsitektur Sistem
+
+```
+Dataset CSV Olist
+        ↓
+Apache Spark (PySpark)
+(Bronze → Silver → Gold)
+        ↓
+PostgreSQL (Data Mart)
+        ↑
+Apache Airflow (Orkestrasi Per Jam)
+```
 
 ---
 
 ## Dataset
 
-Proyek ini menggunakan **Olist Brazilian E-Commerce Dataset** yang tersedia di Kaggle.
+Proyek ini menggunakan **Olist Brazilian E-Commerce Dataset**.
 
-Dataset terdiri dari beberapa tabel utama, antara lain:
+### Dataset yang Digunakan Secara Aktif (Core Dataset)
 
-* orders
-* order_items
-* products
-* customers
-* sellers
-* payments
+1. olist_orders_dataset.csv
+2. olist_order_items_dataset.csv
+3. olist_products_dataset.csv
+4. product_category_name_translation.csv
 
-Dataset ini dipilih karena:
-
-* memiliki struktur multi-table yang realistis,
-* mendukung pemodelan data fact dan dimension,
-* memiliki timestamp yang lengkap untuk analisis time-series.
-
-Catatan: Dataset tidak menyediakan data stok secara eksplisit, sehingga **inventory dihitung secara estimasi** berdasarkan data penjualan historis. Asumsi ini dijelaskan secara eksplisit dalam dokumentasi proyek.
+Dataset lainnya tersedia sebagai potensi enrichment, namun tidak digunakan secara langsung dalam pipeline inti.
 
 ---
 
-## Solusi dan Pendekatan
+## Desain ETL Pipeline (Bronze – Silver – Gold)
 
-Pipeline batch dibangun dengan pendekatan berikut:
+### Source Layer
 
-1. Menghitung **penjualan harian per produk**.
-2. Menghitung **rata-rata penjualan harian (rolling window)**.
-3. Mengestimasi **stok saat ini** berdasarkan stok awal dan akumulasi penjualan.
-4. Menghitung metrik inventory, seperti:
+* File CSV mentah berisi data transaksi historis
 
-   * jumlah hari stok tersisa,
-   * reorder point,
-   * jumlah rekomendasi pemesanan ulang.
-5. Mengklasifikasikan status produk menjadi:
+### Bronze Layer (Raw Ingest)
 
-   * LOW_STOCK
-   * OK
-   * OVERSTOCK
+* Data di-ingest apa adanya menggunakan Apache Spark
+* Parsing skema dan validasi dasar
+* Belum ada logic bisnis pada tahap ini
 
-Pendekatan ini memungkinkan sistem memberikan rekomendasi yang dapat langsung digunakan untuk pengambilan keputusan operasional.
+### Silver Layer (Clean dan Transform)
 
----
+* Join antar dataset
+* Filtering data valid
+* Normalisasi dan agregasi data penjualan
 
-## Output Utama
+Output:
 
-Output utama proyek adalah tabel **`restock_recommendation`** yang berisi rekomendasi restock per produk.
+* fact_sales_daily
+* inventory_snapshot
 
-Contoh kolom utama:
+### Gold Layer (Output Bisnis)
 
-* run_date
-* product_id
-* avg_daily_sales_30d
-* current_stock
-* stock_days_left
-* reorder_point
-* recommended_order_qty
-* status
+* Penerapan logic bisnis untuk perhitungan restock
+* Perbandingan antara stok saat ini dan rata-rata penjualan harian
 
-Tabel ini dirancang agar mudah digunakan oleh tim bisnis atau operasional tanpa perlu melakukan perhitungan tambahan.
+Output utama:
+
+* restock_recommendation
 
 ---
 
-## Arsitektur Data Pipeline
+## Orkestrasi dengan Apache Airflow
 
-Pipeline dibangun menggunakan pendekatan batch dengan alur sebagai berikut:
+Pipeline diorkestrasi menggunakan Apache Airflow dengan urutan task sebagai berikut:
 
-1. Ingestion data mentah (CSV)
-2. Penyimpanan data mentah dalam format Parquet
-3. Transformasi data menggunakan PySpark
-4. Penyimpanan data hasil transformasi ke PostgreSQL
-5. Pemeriksaan kualitas data (data quality checks)
+```
+spark_sales_daily
+→ spark_inventory_snapshot
+→ spark_restock_recommendation
+→ load_to_postgres
+```
 
-Pipeline dijadwalkan menggunakan Apache Airflow.
+Karakteristik orkestrasi:
+
+* Dijadwalkan secara per jam
+* Dependency antar task dikelola oleh Airflow
+* Retry dan monitoring dijalankan secara otomatis
+* Pipeline telah berhasil dijalankan secara end-to-end
+
+---
+
+## Penyimpanan Data
+
+PostgreSQL digunakan sebagai **analytical data store** untuk:
+
+* Menyimpan hasil transformasi
+* Mendukung query berbasis SQL
+* Validasi data menggunakan database client
+
+Tabel yang dihasilkan:
+
+* fact_sales_daily
+* inventory_snapshot
+* restock_recommendation
+* etl_metadata
+
+---
+
+## Validasi
+
+Validasi pipeline dilakukan melalui:
+
+* Keberhasilan eksekusi seluruh task di Airflow
+* Data tersedia dan dapat di-query di PostgreSQL
+* Pemeriksaan langsung menggunakan DBeaver
 
 ---
 
 ## Teknologi yang Digunakan
 
-* Python
-* Apache Airflow (Batch Orchestration)
-* PySpark (Data Transformation)
-* PostgreSQL (Data Storage)
-* Parquet (Raw Data Storage)
-* Docker dan Docker Compose
-* Git (Version Control)
+* Apache Spark (PySpark) – Pemrosesan data
+* Apache Airflow – Orkestrasi workflow
+* PostgreSQL – Data mart analitik
+* Docker dan Docker Compose – Manajemen environment
+* Python – Implementasi ETL
 
 ---
 
-## Struktur Repository
+## Asumsi dan Keterbatasan
 
-```
-final-project-restock-olist/
-├── dags/
-│   └── dag_restock_olist.py
-├── spark/
-│   ├── 01_sales_daily.py
-│   ├── 02_inventory_snapshot.py
-│   └── 03_restock_recommendation.py
-├── sql/
-│   ├── staging_tables.sql
-│   └── mart_tables.sql
-├── docker-compose.yml
-├── README.md
-└── docs/
-    ├── architecture.png
-    ├── data_model.png
-    └── assumptions.md
-```
+* Dataset bersifat historis dan berbasis batch
+* Inventory yang digunakan merupakan simulasi
+* Belum menerapkan real-time event streaming
 
 ---
 
-## Catatan dan Asumsi
+## Pengembangan Selanjutnya
 
-* Data inventory dihitung secara estimasi karena keterbatasan dataset.
-* Proyek ini menggunakan pendekatan batch karena data bersifat historis dan tidak membutuhkan pemrosesan real-time.
-* Fokus utama proyek adalah **kualitas pipeline dan logika data**, bukan visualisasi dashboard.
+* Integrasi dengan platform streaming (misalnya Kafka)
+* Penerapan incremental data ingestion
+* Integrasi dengan BI dashboard
+* Deployment ke Spark cluster terdistribusi
 
+---
+
+## Kesimpulan
+
+Proyek ini berhasil membangun **micro-batch data pipeline** yang stabil dan modular, serta merepresentasikan praktik data engineering yang baik mulai dari ingest data, transformasi, orkestrasi, hingga penyimpanan data analitik.
+
+---
+
+## Ringkasan Satu Kalimat
+
+Pipeline data micro-batch per jam menggunakan Apache Spark dan Airflow untuk menghasilkan rekomendasi restock yang disimpan di PostgreSQL.
+
+---
+
+Jika sudah disimpan, balas: **“README done”**
+Setelah itu kita lanjut ke **diagram arsitektur**.

@@ -15,18 +15,20 @@ def main():
         .getOrCreate()
     )
 
-    # Read fact_sales_daily
+    # Read fact_sales_daily + pastiin kolom date benar sebagai date
     sales = (
         spark.read.option("header", True).option("inferSchema", True)
         .csv(SALES_DIR)
+        .withColumn("date", F.to_date("date"))
     )
+
+    # run_date harus ngikut data, bukan current_date() (biar rolling window nyambung)
+    run_date = sales.agg(F.max("date").alias("run_date")).collect()[0]["run_date"]
 
     # Hitung cumulative sales per product
     cumulative_sales = (
         sales.groupBy("product_id")
-        .agg(
-            F.sum("qty_sold").alias("cumulative_qty_sold")
-        )
+        .agg(F.sum("qty_sold").alias("cumulative_qty_sold"))
     )
 
     # Build inventory snapshot
@@ -35,12 +37,9 @@ def main():
         .withColumn("starting_stock", F.lit(STARTING_STOCK))
         .withColumn(
             "current_stock",
-            F.greatest(
-                F.col("starting_stock") - F.col("cumulative_qty_sold"),
-                F.lit(0)
-            )
+            F.greatest(F.col("starting_stock") - F.col("cumulative_qty_sold"), F.lit(0))
         )
-        .withColumn("run_date", F.current_date())
+        .withColumn("run_date", F.lit(run_date).cast("date"))
         .select(
             "run_date",
             "product_id",
